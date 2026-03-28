@@ -1,0 +1,22 @@
+{
+  "name": "doppler-test-fixtures",
+  "version": "0.1.0",
+  "description": "Faucet-free integration testing harness for the Doppler protocol SDK using Anvil local forks",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@whetstone-research/doppler-sdk": "latest",
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "@viem/anvil": "^0.0.10",
+    "vitest": "^1.0.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
