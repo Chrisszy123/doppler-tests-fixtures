@@ -11,9 +11,14 @@ export default defineConfig(({ mode }) => {
   return {
     test: {
       include: ["tests/**/*.test.ts"],
-      testTimeout: 60_000,
-      hookTimeout: 60_000,
+      // Migration tests run mineTokenOrder (cold RPC) and long swap flows.
+      testTimeout: 120_000,
+      hookTimeout: 120_000,
       pool: "forks",
+      // Run one test file at a time so only a single Anvil fork hits the RPC.
+      // Without this, 6 simultaneous Anvil instances overwhelm the Alchemy
+      // rate limit (HTTP 429) and cause cascading timeouts.
+      fileParallelism: false,
       reporters: ["verbose"],
       globals: false,
     },

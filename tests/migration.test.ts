@@ -4,6 +4,13 @@
  * We drive maxProceeds to a very small value so graduation is achievable by
  * funding a few large buys within the test.  The Anvil fork lets us set
  * arbitrary balances via setBalance, so we never need a faucet.
+ *
+ * Performance note: createStaticAuction internally runs mineTokenOrder which
+ * iterates simulateContract to find the correct salt ordering.  This is the
+ * single most expensive operation in the file.  We therefore create the pool
+ * once in beforeAll and snapshot that state; each test reverts to the
+ * post-creation snapshot so graduation can be driven fresh every time without
+ * paying the pool-creation cost three times over.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import {
@@ -70,24 +77,18 @@ const feesLockerAbi = [
 const SWAP_ROUTER: Address = "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4";
 const POOL_FEE = 10000;
 
-// ── Shared fixture ────────────────────────────────────────────────────────────
+// ── Shared state ─────────────────────────────────────────────────────────────
 let f: Fixture;
-
-beforeAll(async () => {
-  f = await createFixture({ chainId: 84532 });
-});
-
-afterAll(async () => {
-  await f.teardown();
-});
-
-beforeEach(async () => {
-  await f.reset();
-});
+// tokenAddress and poolAddress are set once in beforeAll and reused across tests.
+let tokenAddress: Address;
+let poolAddress: Address;
+// Snapshot taken right after pool creation — each test reverts here so it can
+// drive graduation from a clean, pre-graduated state.
+let poolSnapshot: string;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function createLowCapPool() {
-  // Very low maxProceeds so graduation is achievable with a couple of ETH.
+  // Very low marketCap.end so graduation is achievable with a couple of ETH.
   const params = f.sdk
     .buildStaticAuction()
     .tokenConfig({
@@ -184,14 +185,44 @@ async function driveToGraduation(
   } catch {
     // migration may self-trigger on the last swap — not an error.
   }
+
+  void poolAddr; // suppress unused-var warning
 }
+
+// ── Setup / teardown ──────────────────────────────────────────────────────────
+
+beforeAll(async () => {
+  // Pin to a specific block so Anvil can use disk-based fork caching
+  // (~/.foundry/cache/rpc/).  Without a pinned block, Anvil re-fetches all
+  // contract state on every run (cold), which can take 2-3 minutes and hit
+  // Alchemy rate limits.  After the first (cold) run the cache is built and
+  // subsequent runs complete in < 10 s.
+  f = await createFixture({ chainId: 84532, forkBlockNumber: 39515000n });
+
+  // Create the pool ONCE — mineTokenOrder is the expensive step and we don't
+  // want to pay it three times.  Each test will revert to this snapshot.
+  const result = await createLowCapPool();
+  tokenAddress = result.tokenAddress;
+  poolAddress = result.poolAddress;
+
+  poolSnapshot = await f.fixture.snapshot();
+});
+
+afterAll(async () => {
+  await f.teardown();
+});
+
+beforeEach(async () => {
+  // Revert to the post-pool-creation state so every test starts with a fresh,
+  // pre-graduated pool.  Re-snapshot so the next revert has a valid ID.
+  await f.fixture.revert(poolSnapshot);
+  poolSnapshot = await f.fixture.snapshot();
+});
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("Migration lifecycle", () => {
   it("token graduates to a V2 pool when maxProceeds is reached", async () => {
-    const { tokenAddress, poolAddress } = await createLowCapPool();
-
     await driveToGraduation(tokenAddress, poolAddress);
 
     const staticAuction = await f.sdk.getStaticAuction(poolAddress);
@@ -201,8 +232,6 @@ describe("Migration lifecycle", () => {
   });
 
   it("LP tokens are locked after migration", async () => {
-    const { tokenAddress, poolAddress } = await createLowCapPool();
-
     await driveToGraduation(tokenAddress, poolAddress);
 
     const sa1 = await f.sdk.getStaticAuction(poolAddress);
@@ -245,7 +274,6 @@ describe("Migration lifecycle", () => {
   });
 
   it("trading continues on V2 after migration", async () => {
-    const { tokenAddress, poolAddress } = await createLowCapPool();
     await driveToGraduation(tokenAddress, poolAddress);
 
     const sa2 = await f.sdk.getStaticAuction(poolAddress);

@@ -118,7 +118,7 @@ beforeAll(async () => {
       numerairePrice: 3000,
     })
     .withGovernance({ type: "noOp" })
-    .withMigration({ type: "noOp" })
+    .withMigration({ type: "uniswapV2" })
     .withUserAddress(f.accounts[0]!.address)
     .build();
 

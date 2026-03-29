@@ -33,6 +33,18 @@ export function createSdkClients(
 
   const publicClient = createPublicClient({ transport }) as PublicClient;
 
+  // Doppler SDK often calls waitForTransactionReceipt({ confirmations: 2 }).
+  // On Anvil with automine, each tx gets exactly one block; the chain head is
+  // still the block that included the tx, so viem's "2 confirmations" check
+  // (needs one more block on top) is never satisfied.  It polls until the
+  // default 180s timeout — not a "slow RPC" problem.
+  //
+  // For local forks, one mined block is sufficient; mainnet-style reorg safety
+  // does not apply here.
+  const innerWait = publicClient.waitForTransactionReceipt.bind(publicClient);
+  publicClient.waitForTransactionReceipt = async (args) =>
+    innerWait({ ...args, confirmations: 1 });
+
   const walletAccount = privateKeyToAccount(account.privateKey);
   const walletClient = createWalletClient({
     account: walletAccount,

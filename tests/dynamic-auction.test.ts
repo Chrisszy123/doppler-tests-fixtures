@@ -48,7 +48,7 @@ function buildDynamicParams(
       duration: overrides.duration ?? 86400,
     })
     .withGovernance({ type: "noOp" })
-    .withMigration({ type: "noOp" })
+    .withMigration({ type: "uniswapV2" })
     .withUserAddress(f.accounts[0]!.address)
     .build();
 }
