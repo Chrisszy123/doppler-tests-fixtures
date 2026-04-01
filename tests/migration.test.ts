@@ -110,6 +110,10 @@ async function createLowCapPool() {
     .withUserAddress(f.accounts[0]!.address)
     .build();
 
+    console.log("Pool params:", JSON.stringify(params, (_, v) =>
+      typeof v === "bigint" ? v.toString() : v
+    , 2));
+
   return f.sdk.factory.createStaticAuction(params);
 }
 
@@ -117,23 +121,25 @@ async function driveToGraduation(
   tokenAddr: Address,
   poolAddr: Address
 ): Promise<void> {
-  const buyers = f.accounts.slice(1, 5); // Accounts 1–4 act as buyers.
+  const buyChunk = parseEther("2");
+  const maxSwaps = 500;
+  const buyers = f.accounts.slice(1, 9);
+  let consecutiveFailures = 0;
+  let successfulSwaps = 0;
 
-  for (const buyer of buyers) {
-    // Fund each buyer with plenty of ETH.
-    await f.fixture.setBalance(buyer.address, parseEther("1000"));
+  for (let i = 0; i < maxSwaps; i++) {
+    const buyer = buyers[i % buyers.length]!;
+    await f.fixture.setBalance(buyer.address, parseEther("500"));
 
-    // Wrap ETH → WETH.
     await f.walletClient.writeContract({
       address: f.contracts.weth,
       abi: weth9Abi,
       functionName: "deposit",
-      value: parseEther("500"),
+      value: buyChunk + parseEther("0.02"),
       account: buyer.address,
       chain: null,
     });
 
-    // Approve router.
     await f.walletClient.writeContract({
       address: f.contracts.weth,
       abi: weth9Abi,
@@ -143,7 +149,6 @@ async function driveToGraduation(
       chain: null,
     });
 
-    // Buy as many tokens as possible.
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 7200);
     try {
       await f.walletClient.writeContract({
@@ -156,37 +161,58 @@ async function driveToGraduation(
           fee: POOL_FEE,
           recipient: buyer.address,
           deadline,
-          amountIn: parseEther("200"),
+          amountIn: buyChunk,
           amountOutMinimum: 0n,
           sqrtPriceLimitX96: 0n,
         }],
         account: buyer.address,
         chain: null,
       });
-    } catch {
-      // Pool may have run out of tokens — that's graduation.
+      consecutiveFailures = 0;
+      successfulSwaps++;
+    } catch (e) {
+      consecutiveFailures++;
+      if (i < 10 || consecutiveFailures === 1) {
+        console.error(`Swap ${i} failed:`, e);
+      }
+      if (consecutiveFailures >= 8) {
+        console.log(`Breaking after ${consecutiveFailures} consecutive failures at swap ${i}`);
+        break;
+      }
     }
 
     await f.fixture.mine(1);
   }
 
-  // Trigger migration explicitly (the Airlock will process it when all tokens
-  // are sold or maxProceeds is hit).
-  try {
-    await f.walletClient.writeContract({
-      address: f.contracts.airlock,
-      abi: airlockAbi,
-      functionName: "migrate",
-      args: [tokenAddr],
-      account: f.accounts[0]!.address,
-      chain: null,
-    });
-    await f.fixture.mine(1);
-  } catch {
-    // migration may self-trigger on the last swap — not an error.
-  }
+  for (let m = 0; m < 24; m++) {
+    const sa = await f.sdk.getStaticAuction(poolAddr);
+    const poolInfo = await sa.getPoolInfo();
+    // console.log("StaticAuction poolInfo:", {
+    //   ...poolInfo,
+    //   liquidity: poolInfo.liquidity.toString(),
+    //   sqrtPriceX96: poolInfo.sqrtPriceX96.toString(),
+    // });
 
-  void poolAddr; // suppress unused-var warning
+    const graduated = await sa.hasGraduated();
+    console.log(`Migration attempt ${m}: hasGraduated=${graduated}`);
+    
+    if (graduated) return;
+
+    try {
+      await f.walletClient.writeContract({
+        address: f.contracts.airlock,
+        abi: airlockAbi,
+        functionName: "migrate",
+        args: [tokenAddr],
+        account: f.accounts[0]!.address,
+        chain: null,
+      });
+      await f.fixture.mine(1);
+      console.log(`migrate() attempt ${m} succeeded`);
+    } catch (e: any) {
+      console.error(`migrate() attempt ${m} failed:`, e?.shortMessage ?? e?.message ?? e);
+    }
+  }
 }
 
 // ── Setup / teardown ──────────────────────────────────────────────────────────
@@ -227,6 +253,7 @@ describe("Migration lifecycle", () => {
 
     const staticAuction = await f.sdk.getStaticAuction(poolAddress);
     const graduated = await staticAuction.hasGraduated();
+    console.log("graduated", graduated);
 
     expect(graduated, "Token should have graduated after large buys").toBe(true);
   });

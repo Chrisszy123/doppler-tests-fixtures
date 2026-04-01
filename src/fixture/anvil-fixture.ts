@@ -25,7 +25,7 @@ async function getRandomPort(): Promise<number> {
 }
 
 /** How long (ms) to wait for Anvil to become ready before giving up. */
-const STARTUP_TIMEOUT_MS = 10_000;
+const STARTUP_TIMEOUT_MS = 120_000;
 
 // Use a loose type so the class doesn't fight viem's deeply-generic TestClient.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

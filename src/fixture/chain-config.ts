@@ -28,8 +28,7 @@ const BASE_SEPOLIA: ChainConfig = {
   chainId: 84532,
   name: "Base Sepolia",
   rpcUrl:
-    process.env["BASE_SEPOLIA_RPC_URL"] ??
-    "https://sepolia.base.org",
+    "https://base-sepolia.g.alchemy.com/v2/i_dly2NyYSFwbTsSU419OkBDn5Iq1Xiq",
   contracts: {
     airlock: "0x3411306ce66c9469bff1535ba955503c4bde1c6e",
     tokenFactory: "0x9d8fd79b2a59c5d91ccbd79c3aeb4de56451bb02",
@@ -108,3 +107,4 @@ export function getChainConfig(chainId: number): ChainConfig {
   }
   return config;
 }
+
